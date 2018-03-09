@@ -1,0 +1,11 @@
+package: seoinspector
+version: '0.3'
+author: rokito
+supportpage: www.rokito.de
+
+requires:
+    redaxo: '^5.2'
+    packages:
+        structure: '^2.0'
+        yform/manager: '^2.0'
+        yrewrite: '^2.2.1'
