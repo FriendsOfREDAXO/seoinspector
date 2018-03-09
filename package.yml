@@ -1,7 +1,7 @@
 package: seoinspector
 version: '0.3'
 author: Friends Of REDAXO
-supportpage: www.rokito.de
+supportpage: https://redaxo.org/
 
 requires:
     redaxo: '^5.2'
