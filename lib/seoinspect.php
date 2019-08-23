@@ -75,7 +75,7 @@ var resultarea = jQuery('.si-results'),
 	articlerealtitle = articletitle.match(/<title[^>]*>([^<]+)<\/title>/)[1],
 	articledescription = '".json_encode($seo->getDescriptionTag())."',
 	articlerealdescription = articledescription.match(/content=\"(.*?)\">/)[1],
-	templatehtmlcontent = '".json_encode(htmlentities(str_replace('\'','"',file_get_contents("http://".$_SERVER['SERVER_NAME'].rex_article::getCurrent()->getUrl()))))."'
+	templatehtmlcontent = '".json_encode(htmlentities(str_replace('\'','"',@file_get_contents((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || $_SERVER['SERVER_PORT'] == 443) ? "https://" : "http://".$_SERVER['SERVER_NAME'].rex_article::getCurrent()->getUrl()))))."'
 
 
 /*inspect*/
