@@ -2,6 +2,219 @@
 
 
 
+class rex_article_content_base_local extends rex_article_content_base
+{
+    public function getArticle($curctype = -1)
+    {
+        $this->ctype = $curctype;
+
+        if ($this->article_id == 0 && $this->getSlice == 0) {
+            return rex_i18n::msg('no_article_available');
+        }
+
+        $articleLimit = '';
+        if ($this->article_id != 0) {
+            $articleLimit = ' AND ' . rex::getTablePrefix() . 'article_slice.article_id=' . (int) $this->article_id;
+        }
+
+        $sliceLimit = '';
+        if ($this->getSlice != 0) {
+            $sliceLimit = ' AND ' . rex::getTablePrefix() . "article_slice.id = '" . ((int) $this->getSlice) . "' ";
+        }
+
+        // ----- start: article caching
+        ob_start();
+        ob_implicit_flush(0);
+        $module_id = rex_request('module_id', 'int');
+
+        // ---------- alle teile/slices eines artikels auswaehlen
+        $query = 'SELECT ' . rex::getTablePrefix() . 'module.id, ' . rex::getTablePrefix() . 'module.name, ' . rex::getTablePrefix() . 'module.output, ' . rex::getTablePrefix() . 'module.input, ' . rex::getTablePrefix() . 'article_slice.*, ' . rex::getTablePrefix() . 'article.parent_id
+                        FROM
+                            ' . rex::getTablePrefix() . 'article_slice
+                        LEFT JOIN ' . rex::getTablePrefix() . 'module ON ' . rex::getTablePrefix() . 'article_slice.module_id=' . rex::getTablePrefix() . 'module.id
+                        LEFT JOIN ' . rex::getTablePrefix() . 'article ON ' . rex::getTablePrefix() . 'article_slice.article_id=' . rex::getTablePrefix() . 'article.id
+                        WHERE
+                            ' . rex::getTablePrefix() . "article_slice.clang_id='" . $this->clang . "' AND
+                            " . rex::getTablePrefix() . "article.clang_id='" . $this->clang . "' AND
+                            " . rex::getTablePrefix() . "article_slice.revision='" . $this->slice_revision . "'
+                            " . $articleLimit . '
+                            ' . $sliceLimit . ' AND
+                            ' . rex::getTablePrefix() . 'article_slice.status = 1
+                            ORDER BY ' . rex::getTablePrefix() . 'article_slice.priority';
+
+        $query = rex_extension::registerPoint(new rex_extension_point(
+            'ART_SLICES_QUERY',
+            $query,
+            ['article' => $this]
+        ));
+
+        $artDataSql = rex_sql::factory();
+        $artDataSql->setDebug($this->debug);
+        $artDataSql->setQuery($query);
+
+        // pre hook
+        $articleContent = '';
+        $articleContent = $this->preArticle($articleContent, $module_id);
+
+        // ---------- SLICES AUSGEBEN
+
+        $prevCtype = null;
+        $artDataSql->reset();
+        $rows = $artDataSql->getRows();
+        for ($i = 0; $i < $rows; ++$i) {
+            $sliceId = $artDataSql->getValue(rex::getTablePrefix() . 'article_slice.id');
+            $sliceCtypeId = $artDataSql->getValue(rex::getTablePrefix() . 'article_slice.ctype_id');
+            $sliceModuleId = $artDataSql->getValue(rex::getTablePrefix() . 'module.id');
+
+            // ----- ctype unterscheidung
+            if ($this->mode != 'edit' && !$this->eval) {
+                if (0 == $i) {
+                    $articleContent = "<?php if (\$this->ctype == '" . $sliceCtypeId . "' || (\$this->ctype == '-1')) { \n";
+                } elseif (isset($prevCtype) && $sliceCtypeId != $prevCtype) {
+                    // ----- zwischenstand: ctype .. wenn ctype neu dann if
+                    $articleContent .= "\n } if(\$this->ctype == '" . $sliceCtypeId . "' || \$this->ctype == '-1'){ \n";
+                }
+            }
+            // rex::setProperty('redaxo', false);
+
+            // ------------- EINZELNER SLICE - AUSGABE
+            $slice_content = $this->outputSlice(
+                $artDataSql,
+                $module_id
+            );
+            // --------------- ENDE EINZELNER SLICE
+
+            // --------------- EP: SLICE_SHOW
+            $slice_content = rex_extension::registerPoint(new rex_extension_point(
+                'SLICE_SHOW',
+                $slice_content,
+                [
+                    'article_id' => $this->article_id,
+                    'clang' => $this->clang,
+                    'ctype' => $sliceCtypeId,
+                    'module_id' => $sliceModuleId,
+                    'slice_id' => $sliceId,
+                    'function' => $this->function,
+                    'function_slice_id' => $this->slice_id,
+                    'sql' => $artDataSql,
+                ]
+            ));
+
+            // ---------- slice in ausgabe speichern wenn ctype richtig
+            if ($this->ctype == -1 || $this->ctype == $sliceCtypeId) {
+                $articleContent .= $slice_content;
+            }
+
+            $prevCtype = $sliceCtypeId;
+
+            $artDataSql->flushValues();
+            $artDataSql->next();
+        }
+
+        // ----- end: ctype unterscheidung
+        if ($this->mode != 'edit' && !$this->eval && $i > 0) {
+            $articleContent .= "\n } ?>";
+        }
+
+        // ----- post hook
+        $articleContent = $this->postArticle($articleContent, $module_id);
+
+        // -------------------------- schreibe content
+        echo $articleContent;
+
+        // ----- end: article caching
+        $CONTENT = ob_get_clean();
+
+        return $CONTENT;
+    }
+}
+
+class rex_article_content_local extends rex_article_content_base_local
+{
+    public function getArticle($curctype = -1)
+    {
+        $this->ctype = $curctype;
+
+        if (!$this->getSlice && $this->article_id != 0) {
+            // ----- start: article caching
+            ob_start();
+            ob_implicit_flush(0);
+
+            $article_content_file = rex_path::addonCache('structure', $this->article_id . '.' . $this->clang . '.content');
+
+            $generated = true;
+            if (!file_exists($article_content_file)) {
+                $generated = rex_content_service_local::generateArticleContent($this->article_id, $this->clang);
+                if ($generated !== true) {
+                    // fehlermeldung ausgeben
+                    echo $generated;
+                }
+            }
+
+            if ($generated === true) {
+                require $article_content_file;
+            }
+
+            // ----- end: article caching
+            $CONTENT = ob_get_clean();
+        } else {
+            // Inhalt ueber sql generierens
+            $CONTENT = parent::getArticle($curctype);
+        }
+
+        $CONTENT = rex_extension::registerPoint(new rex_extension_point('ART_CONTENT', $CONTENT, [
+            'ctype' => $curctype,
+            'article' => $this,
+        ]));
+
+        return $CONTENT;
+    }
+}
+
+class rex_content_service_local extends rex_content_service
+{
+    public static function generateArticleContent($article_id, $clang = null)
+    {
+        foreach (rex_clang::getAllIds() as $_clang) {
+            if ($clang !== null && $clang != $_clang) {
+                continue;
+            }
+
+            $CONT = new rex_article_content_base_local();
+            $CONT->setCLang($_clang);
+            $CONT->setEval(false); // Content nicht ausführen, damit in Cachedatei gespeichert werden kann
+            if (!$CONT->setArticleId($article_id)) {
+                return false;
+            }
+
+            // --------------------------------------------------- Artikelcontent speichern
+            $article_content_file = rex_path::addonCache('structure', "$article_id.$_clang.content");
+            $article_content = $CONT->getArticle();
+
+            // ----- EXTENSION POINT
+            $article_content = rex_extension::registerPoint(new rex_extension_point('GENERATE_FILTER', $article_content, [
+                'id' => $article_id,
+                'clang' => $_clang,
+                'article' => $CONT,
+            ]));
+
+            if (rex_file::put($article_content_file, $article_content) === false) {
+                return rex_i18n::msg('article_could_not_be_generated') . ' ' . rex_i18n::msg('check_rights_in_directory') . rex_path::addonCache('structure');
+            }
+        }
+
+        return true;
+    }
+}
+
+
+
+
+
+
+
+
+
 /*setup*/
 $content = '';
 $addon = rex_addon::get('yrewrite');
@@ -47,7 +260,8 @@ if ($yform->objparams['actions_executed']) {
 $results = '<br><label>'.rex_i18n::msg('si_inspection').'</label><div class="si-results"></div>';
 $preview = '<br><label>'.rex_i18n::msg('si_preview').'</label><div class="si-preview"></div>';
 
-
+$articleContentInstance = new rex_article_content_local($article_id, $clang);
+$articleContent = $articleContentInstance->getArticle();
 
 /*script*/
 $script = "
@@ -67,8 +281,8 @@ var resultarea = jQuery('.si-results'),
 	ranking = { total:null, valid:null },
 	focuskeyword = jQuery('#seoinspector > div > input').val(),
 	focuskeywordlist = ".json_encode(rex_sql::factory()->setQuery("SELECT seoinspector_focuskeyword FROM rex_article")->getArray()).",
-	articlecontent = '".json_encode(preg_replace('/[\'\"]/', '',rex_var_article::getArticle($article_id)))."',
-	articleplaincontent = '".json_encode(trim(preg_replace('/[\'\"]/', '',preg_replace('/\s\s+/', ' ', strip_tags(rex_var_article::getArticle($article_id))))))."',
+    articlecontent = '".json_encode(preg_replace('/[\'\"]/', '',$articleContent))."',
+    articleplaincontent = '".json_encode(trim(preg_replace('/[\'\"]/', '',preg_replace('/\s\s+/', ' ', strip_tags($articleContent)))))."',
 	articleurl = '".json_encode(rex_article::get($article_id)->getUrl())."',
 	articlefullurl = document.location.origin+articleurl.replace(/\"/g,''),
 	articletitle = '".json_encode($seo->getTitleTag())."',
