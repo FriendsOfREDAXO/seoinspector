@@ -2,6 +2,11 @@
 
 Ein SEO Ranking Tool fürs Backend.
 
+⌛️ | Deprecated: Dieses AddOn ist veraltet und wird nicht mehr fortgeführt. Eine mögliche Alternative ist: [seocheckup](https://github.com/iceman-fx/seocheckup) | ⌛️
+:---: | :---: | :---
+
+
+
 Dieses Addon erweitert die Seitenspalte im Backend um das Inspektor Panel. Hier wird der gesamte Artikel nach allgemeinen SEO Kriterien durchsucht und die Ergebnisse überischtlich aufgelistet. Darüber hinaus kann auf ein individuelles Fokus-Keyword geprüft werden. Der Inspektor ist damit eine Art interaktive SEO-Checkliste.
 
 **Features**
